@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>王者荣耀 3D - 手机对战</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    window.addEventListener('error', function(e) {
+      var box = document.getElementById('debug-err-box');
+      if (box) {
+        box.style.display = 'block';
+        box.innerText = '⚠️ 提示: ' + (e.message || e);
+        setTimeout(function() { box.style.display = 'none'; }, 4000);
+      }
+    });
+  </script>
+</head>
+<body>
+  <!-- 调试提示框 (点击可立即关闭) -->
+  <div id="debug-err-box" onclick="this.style.display='none'" style="display:none; position:fixed; top:5px; left:5px; right:5px; background:rgba(220,38,38,0.95); color:#fff; font-size:12px; padding:8px 12px; border-radius:6px; z-index:99999; word-break:break-all; cursor:pointer;"></div>
+
+  <!-- 横屏提示遮罩 (支持一键直接进入，绝不阻断用户) -->
+  <div id="landscape-prompt" class="orientation-mask">
+    <div class="prompt-card">
+      <div class="rotate-icon">📱 ⟳</div>
+      <h2>推荐横屏体验</h2>
+      <p>横屏手持可获得最佳王者对战触控视野，也可直接进入游戏畅玩！</p>
+      <div class="prompt-btn-row">
+        <button id="btn-enter-game" class="btn-prompt-enter">🚀 直接进入游戏</button>
+        <button id="btn-force-rotate" class="btn-prompt-rotate">🔄 切换模拟横屏</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3D 游戏主渲染画布 -->
+  <div id="canvas-container"></div>
+
+  <!-- 顶部悬浮飘字容器（伤害/暴击/治疗） -->
+  <div id="damage-text-layer"></div>
+
+  <!-- ==================== UI 界面层 ==================== -->
+  <div id="ui-overlay">
+
+    <!-- 1. 主菜单大厅 -->
+    <div id="lobby-screen" class="ui-screen active">
+      <div class="lobby-bg-overlay"></div>
+      <div class="lobby-content">
+        <div class="game-logo">
+          <span class="sub-title">3D MOBILE MOBA</span>
+          <h1>王者峡谷 · 巅峰单挑</h1>
+          <span class="edition-tag">墨家机关道 1v1 竞技场</span>
+        </div>
+
+        <div class="mode-select-box">
+          <button id="btn-solo-ai" class="btn-primary pulse-btn">
+            <span class="btn-icon">🤖</span>
+            <span class="btn-text">单人训练 (人机AI)</span>
+            <span class="btn-desc">随时单人开局 · 智能电脑走位放招</span>
+          </button>
+
+          <div class="divider"><span>或 与好友 1v1 联机</span></div>
+
+          <div class="room-action-row">
+            <button id="btn-quick-match" class="btn-gold">
+              <span class="btn-icon">⚡</span> 快速联机匹配
+            </button>
+            <button id="btn-create-room" class="btn-gold">
+              <span class="btn-icon">⚔️</span> 创建房间
+            </button>
+          </div>
+
+          <div class="join-room-row">
+            <input type="tel" id="room-code-input" placeholder="输入 4 位房间码" maxlength="4">
+            <button id="btn-join-room" class="btn-secondary">加入对战</button>
+          </div>
+        </div>
+
+        <div class="lobby-footer">
+          <span id="server-status-indicator">🟢 服务器在线</span>
+          <span>双轮盘触控 · 3D 全景视角 · 经典神装商城</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. 房间等待界面 -->
+    <div id="room-screen" class="ui-screen">
+      <div class="room-box">
+        <h2>等待对手加入</h2>
+        <div class="room-code-badge">房间码：<span id="display-room-code">----</span></div>
+        <p class="room-tip">告知好友该 4 位房间码或在同一局域网扫码加入</p>
+        <div class="player-slot-list">
+          <div class="player-slot slot-blue">
+            <div class="slot-avatar">👑</div>
+            <div class="slot-info">
+              <span class="slot-title">蓝方 (房主)</span>
+              <span class="slot-status">已准备</span>
+            </div>
+          </div>
+          <div class="player-slot slot-red">
+            <div class="slot-avatar">⏳</div>
+            <div class="slot-info">
+              <span class="slot-title">红方 (挑战者)</span>
+              <span id="opponent-status" class="slot-status waiting">等待加入...</span>
+            </div>
+          </div>
+        </div>
+        <button id="btn-leave-room" class="btn-back">返回大厅</button>
+      </div>
+    </div>
+
+    <!-- 3. 英雄选择界面 -->
+    <div id="hero-select-screen" class="ui-screen">
+      <div class="hero-select-container">
+        <div class="select-header">
+          <h2>选择出战英雄</h2>
+          <div id="select-countdown">15s</div>
+        </div>
+
+        <div class="hero-card-list">
+          <!-- 亚瑟 -->
+          <div class="hero-card active" data-hero="arthur">
+            <div class="hero-card-img arthur-bg">🛡️</div>
+            <div class="hero-card-info">
+              <span class="hero-role-tag warrior">战士 / 坦克</span>
+              <span class="hero-name">亚瑟</span>
+              <span class="hero-desc">誓约之盾 · 霸体回血斩杀</span>
+            </div>
+          </div>
+          <!-- 妲己 -->
+          <div class="hero-card" data-hero="daji">
+            <div class="hero-card-img daji-bg">🦊</div>
+            <div class="hero-card-info">
+              <span class="hero-role-tag mage">法师 / 爆发</span>
+              <span class="hero-name">妲己</span>
+              <span class="hero-desc">魅力锁敌 · 狐火多重秒杀</span>
+            </div>
+          </div>
+          <!-- 后羿 -->
+          <div class="hero-card" data-hero="houyi">
+            <div class="hero-card-img houyi-bg">🏹</div>
+            <div class="hero-card-info">
+              <span class="hero-role-tag archer">射手 / 持续</span>
+              <span class="hero-name">后羿</span>
+              <span class="hero-desc">疾风箭雨 · 全图超远控制</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hero-detail-panel">
+          <div id="hero-detail-name" class="detail-title">亚瑟</div>
+          <div id="hero-detail-skills" class="detail-skills">
+            <!-- 动态填充英雄技能介绍 -->
+          </div>
+        </div>
+
+        <button id="btn-confirm-hero" class="btn-confirm">确认出战</button>
+      </div>
+    </div>
+
+    <!-- 4. 对战内 HUD 界面 -->
+    <div id="battle-hud" class="ui-screen">
+      <!-- 顶部信息栏 -->
+      <div class="top-bar">
+        <!-- 左侧个人状态与快捷商店 -->
+        <div class="left-hero-panel">
+          <div class="avatar-ring">
+            <div id="hud-avatar" class="avatar-icon">🛡️</div>
+            <div id="hud-level-badge" class="level-badge">1</div>
+          </div>
+          <div class="stats-bars">
+            <div class="bar-container hp-bar-bg">
+              <div id="hud-hp-bar" class="bar-fill hp-fill"></div>
+              <span id="hud-hp-text" class="bar-text">3000 / 3000</span>
+            </div>
+            <div class="bar-container mp-bar-bg">
+              <div id="hud-mp-bar" class="bar-fill mp-fill"></div>
+              <span id="hud-mp-text" class="bar-text">500 / 500</span>
+            </div>
+          </div>
+          <div class="gold-box" id="btn-open-shop">
+            <span class="gold-icon">🪙</span>
+            <span id="hud-gold-text">300</span>
+          </div>
+        </div>
+
+        <!-- 中间比分与计时 -->
+        <div class="center-score-board">
+          <span id="score-blue" class="score blue">0</span>
+          <div class="versus-clock">
+            <span id="match-timer">00:00</span>
+            <span id="match-ping" class="ping-text">25ms</span>
+          </div>
+          <span id="score-red" class="score red">0</span>
+        </div>
+
+        <!-- 右侧小地图与功能按键 -->
+        <div class="right-map-panel">
+          <div class="minimap-wrapper">
+            <canvas id="minimap-canvas" width="130" height="70"></canvas>
+          </div>
+          <div class="system-btns">
+            <button id="btn-mute" class="mini-btn">🔊</button>
+            <button id="btn-surrender" class="mini-btn">⚙️</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 左侧快捷装备购买气泡 -->
+      <div id="quick-buy-panel" class="quick-buy-box">
+        <div class="item-buy-icon" id="quick-item-icon">⚔️</div>
+        <div class="item-buy-info">
+          <div id="quick-item-name" class="name">铁剑</div>
+          <div id="quick-item-price" class="price">🪙 250</div>
+        </div>
+        <button id="btn-quick-buy" class="buy-action-btn">购买</button>
+      </div>
+
+      <!-- 屏幕中央横幅播报（First Blood / 击败 / 推塔） -->
+      <div id="banner-notice" class="banner-box">
+        <div class="banner-title" id="banner-title">第一滴血</div>
+        <div class="banner-desc" id="banner-desc">First Blood</div>
+      </div>
+
+      <!-- 拖拽取消施法红色警告区域 -->
+      <div id="cancel-cast-area" class="cancel-drag-zone">
+        <div class="cancel-content">
+          <span class="cancel-icon">❌</span>
+          <span class="cancel-text">松开手指取消施法</span>
+        </div>
+      </div>
+
+      <!-- 左下角虚拟摇杆触控区 -->
+      <div id="joystick-zone" class="joystick-touch-zone">
+        <div id="joystick-base" class="joystick-base">
+          <div id="joystick-thumb" class="joystick-thumb"></div>
+        </div>
+      </div>
+
+      <!-- 右下角双轮盘技能与普攻操作区 -->
+      <div id="skills-action-zone" class="skills-touch-zone">
+
+        <!-- 召唤师技能与回城/恢复 -->
+        <div class="utility-btns-row">
+          <div class="util-btn" id="btn-recall">
+            <span class="icon">🏰</span>
+            <span class="name">回城</span>
+            <div class="cd-overlay" id="cd-recall"></div>
+          </div>
+          <div class="util-btn" id="btn-heal">
+            <span class="icon">💊</span>
+            <span class="name">恢复</span>
+            <div class="cd-overlay" id="cd-heal"></div>
+          </div>
+          <div class="util-btn" id="btn-spell">
+            <span class="icon">⚡</span>
+            <span class="name">终结</span>
+            <div class="cd-overlay" id="cd-spell"></div>
+          </div>
+        </div>
+
+        <!-- 1/2/3 技能轮盘按键（支持拖拽瞄准与升级） -->
+        <div class="skill-btn-wrapper s1-pos">
+          <div class="skill-btn" id="btn-skill-1" data-skill="1">
+            <div class="skill-icon" id="icon-skill-1">1</div>
+            <div class="cd-overlay" id="cd-skill-1"></div>
+            <div class="cd-number" id="num-skill-1"></div>
+          </div>
+          <button class="skill-upgrade-btn" id="btn-up-1">+</button>
+        </div>
+
+        <div class="skill-btn-wrapper s2-pos">
+          <div class="skill-btn" id="btn-skill-2" data-skill="2">
+            <div class="skill-icon" id="icon-skill-2">2</div>
+            <div class="cd-overlay" id="cd-skill-2"></div>
+            <div class="cd-number" id="num-skill-2"></div>
+          </div>
+          <button class="skill-upgrade-btn" id="btn-up-2">+</button>
+        </div>
+
+        <div class="skill-btn-wrapper s3-pos">
+          <div class="skill-btn ult-btn" id="btn-skill-3" data-skill="3">
+            <div class="skill-icon" id="icon-skill-3">3</div>
+            <div class="cd-overlay" id="cd-skill-3"></div>
+            <div class="cd-number" id="num-skill-3"></div>
+          </div>
+          <button class="skill-upgrade-btn" id="btn-up-3">+</button>
+        </div>
+
+        <!-- 普通攻击大按键 -->
+        <div class="attack-btn" id="btn-attack">
+          <div class="attack-inner">
+            <span class="attack-icon">⚔️</span>
+            <span class="attack-text">普攻</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 5. 装备商店弹窗 -->
+    <div id="shop-modal" class="modal-backdrop">
+      <div class="shop-panel">
+        <div class="shop-header">
+          <h3>局内装备商城</h3>
+          <div class="shop-gold">拥有金币: <span id="shop-current-gold">300</span></div>
+          <button id="btn-close-shop" class="close-x">✕</button>
+        </div>
+        <div class="shop-items-grid" id="shop-items-container">
+          <!-- 动态装备项目 -->
+        </div>
+        <div class="shop-my-inventory">
+          <h4>已购装备 (最多 6 件)</h4>
+          <div class="inventory-slots" id="inventory-slots-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. 游戏胜利/失败结算结算弹窗 -->
+    <div id="settlement-modal" class="settlement-backdrop">
+      <div class="settlement-card">
+        <div id="settlement-banner" class="settlement-title victory">VICTORY 胜利</div>
+        <div class="settlement-stats">
+          <div class="stat-col">
+            <span class="label">击杀 / 阵亡</span>
+            <span id="settlement-kda" class="value">0 / 0</span>
+          </div>
+          <div class="stat-col">
+            <span class="label">对局时长</span>
+            <span id="settlement-time" class="value">02:30</span>
+          </div>
+          <div class="stat-col">
+            <span class="label">摧毁防御塔</span>
+            <span id="settlement-towers" class="value">2 座</span>
+          </div>
+        </div>
+        <button id="btn-settle-lobby" class="btn-primary">返回大厅</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 主程序入口，采用原生 ES Modules 加载本地 Three.js 与游戏引擎 -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
